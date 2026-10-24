@@ -261,7 +261,7 @@ fun HomeScreen(cfg: Config, onSettings: () -> Unit, onOverride: (LocalDate, Int)
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             StatItem("Смен", stats.shifts.toString())
-            StatItem("Часов", stats.hours.toString())
+            StatItem("Часов", ShiftLogic.formatHours(stats.paidMinutes))
             StatItem("Выходных", stats.offDays.toString())
         }
         Spacer(Modifier.height(8.dp))
@@ -363,6 +363,7 @@ fun SettingsScreen(cfg: Config, canGoBack: Boolean, onSave: (Config) -> Unit, on
     var off by remember { mutableStateOf(cfg.offDays) }
     var time by remember { mutableStateOf(cfg.shiftStart) }
     var hours by remember { mutableStateOf(cfg.shiftHours) }
+    var brk by remember { mutableStateOf(cfg.breakMinutes) }
     var alarm by remember { mutableStateOf(cfg.alarmEnabled) }
     var before by remember { mutableStateOf(cfg.alarmMinutesBefore) }
 
@@ -424,6 +425,7 @@ fun SettingsScreen(cfg: Config, canGoBack: Boolean, onSave: (Config) -> Unit, on
                 ).show()
             }
             StepperRow("Длительность смены", hours, " ч", 1, 24, 1) { hours = it }
+            StepperRow("Обед (не оплачивается)", brk, " мин", 0, 180, 15) { brk = it }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -473,6 +475,7 @@ fun SettingsScreen(cfg: Config, canGoBack: Boolean, onSave: (Config) -> Unit, on
                         offDays = off,
                         shiftStart = time,
                         shiftHours = hours,
+                        breakMinutes = brk,
                         alarmEnabled = alarm,
                         alarmMinutesBefore = before,
                         overrides = cfg.overrides

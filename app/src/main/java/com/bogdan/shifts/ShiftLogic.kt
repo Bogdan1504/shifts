@@ -9,7 +9,7 @@ import java.util.Locale
 
 data class Status(val title: String, val subtitle: String, val onShift: Boolean)
 
-data class MonthStats(val shifts: Int, val hours: Int, val offDays: Int)
+data class MonthStats(val shifts: Int, val paidMinutes: Int, val offDays: Int)
 
 object ShiftLogic {
     val ru: Locale = Locale.forLanguageTag("ru")
@@ -69,11 +69,18 @@ object ShiftLogic {
         return Status(title, sub, false)
     }
 
+    fun formatHours(minutes: Int): String {
+        val h = minutes / 60
+        val m = minutes % 60
+        return if (m == 0) "$h" else "$h,${m * 10 / 60}"
+    }
+
     fun monthStats(cfg: Config, ym: YearMonth): MonthStats {
         var shifts = 0
         for (d in 1..ym.lengthOfMonth()) {
             if (isWork(cfg, ym.atDay(d))) shifts++
         }
-        return MonthStats(shifts, shifts * cfg.shiftHours, ym.lengthOfMonth() - shifts)
+        val paidPerShift = maxOf(0, cfg.shiftHours * 60 - cfg.breakMinutes)
+        return MonthStats(shifts, shifts * paidPerShift, ym.lengthOfMonth() - shifts)
     }
 }

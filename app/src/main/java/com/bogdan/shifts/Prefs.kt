@@ -11,6 +11,7 @@ data class Config(
     val offDays: Int,
     val shiftStart: LocalTime,
     val shiftHours: Int,
+    val breakMinutes: Int,
     val alarmEnabled: Boolean,
     val alarmMinutesBefore: Int,
     val overrides: Map<Long, Int>
@@ -45,6 +46,7 @@ object Prefs {
             offDays = p.getInt("off", 3),
             shiftStart = LocalTime.ofSecondOfDay(p.getInt("startMin", 8 * 60) * 60L),
             shiftHours = p.getInt("hours", 12),
+            breakMinutes = p.getInt("break", 60),
             alarmEnabled = p.getBoolean("alarm", true),
             alarmMinutesBefore = p.getInt("alarmBefore", 60),
             overrides = overrides
@@ -59,6 +61,7 @@ object Prefs {
             .putInt("off", c.offDays)
             .putInt("startMin", c.shiftStart.hour * 60 + c.shiftStart.minute)
             .putInt("hours", c.shiftHours)
+            .putInt("break", c.breakMinutes)
             .putBoolean("alarm", c.alarmEnabled)
             .putInt("alarmBefore", c.alarmMinutesBefore)
             .putString("overrides", s)
