@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.os.Build
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -22,27 +23,40 @@ object Alarms {
 
     /** Ставит один будильник — на ближайшую смену. После срабатывания ставится следующий. */
     fun reschedule(ctx: Context) {
-        val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val pi = alarmIntent(ctx)
-        am.cancel(pi)
-        if (!Prefs.isConfigured(ctx)) return
-        val cfg = Prefs.load(ctx)
-        if (!cfg.alarmEnabled) return
+        try {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val pi = alarmIntent(ctx)
+            am.cancel(pi)
+            if (!Prefs.isConfigured(ctx)) return
+            val cfg = Prefs.load(ctx)
+            if (!cfg.alarmEnabled) return
 
-        val now = LocalDateTime.now()
-        val today = now.toLocalDate()
-        for (i in 0L..400L) {
-            val d = today.plusDays(i)
-            if (!ShiftLogic.isWork(cfg, d)) continue
-            val at = ShiftLogic.shiftStart(cfg, d).minusMinutes(cfg.alarmMinutesBefore.toLong())
-            if (at.isAfter(now)) {
-                val millis = at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                val show = PendingIntent.getActivity(
-                    ctx, 1, Intent(ctx, MainActivity::class.java), FLAGS
-                )
-                am.setAlarmClock(AlarmManager.AlarmClockInfo(millis, show), pi)
-                return
+            val now = LocalDateTime.now()
+            val today = now.toLocalDate()
+            for (i in 0L..400L) {
+                val d = today.plusDays(i)
+                if (!ShiftLogic.isWork(cfg, d)) continue
+                val at = ShiftLogic.shiftStart(cfg, d).minusMinutes(cfg.alarmMinutesBefore.toLong())
+                if (at.isAfter(now)) {
+                    val millis = at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    val show = PendingIntent.getActivity(
+                        ctx, 1, Intent(ctx, MainActivity::class.java), FLAGS
+                    )
+                    val canExact = Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+                    try {
+                        if (canExact) {
+                            am.setAlarmClock(AlarmManager.AlarmClockInfo(millis, show), pi)
+                        } else {
+                            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pi)
+                        }
+                    } catch (e: SecurityException) {
+                        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pi)
+                    }
+                    return
+                }
             }
+        } catch (e: Exception) {
+            // Будильник не должен ронять приложение
         }
     }
 }
