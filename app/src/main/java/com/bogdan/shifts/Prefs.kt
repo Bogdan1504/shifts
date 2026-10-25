@@ -4,7 +4,7 @@ import android.content.Context
 import java.time.LocalDate
 import java.time.LocalTime
 
-/** Настройки графика. overrides: epochDay -> 1 (смена) / 2 (выходной). */
+/** Настройки графика. overrides: epochDay -> 1 смена / 2 выходной / 3 оплачиваемый отпуск / 4 неоплачиваемый отпуск. */
 data class Config(
     val startDate: LocalDate,
     val workDays: Int,
@@ -20,6 +20,25 @@ data class Config(
 fun Config.withOverride(date: LocalDate, value: Int): Config {
     val m = overrides.toMutableMap()
     if (value == 0) m.remove(date.toEpochDay()) else m[date.toEpochDay()] = value
+    return copy(overrides = m)
+}
+
+/** Отпуск на период: value 3 = оплачиваемый, 4 = неоплачиваемый, 0 = снять отпуск. */
+fun Config.withVacation(from: LocalDate, to: LocalDate, value: Int): Config {
+    val m = overrides.toMutableMap()
+    var d = from
+    var n = 0
+    while (!d.isAfter(to) && n < 400) {
+        val k = d.toEpochDay()
+        if (value == 0) {
+            val cur = m[k]
+            if (cur == 3 || cur == 4) m.remove(k)
+        } else {
+            m[k] = value
+        }
+        d = d.plusDays(1)
+        n++
+    }
     return copy(overrides = m)
 }
 

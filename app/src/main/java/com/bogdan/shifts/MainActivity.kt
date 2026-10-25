@@ -69,16 +69,21 @@ data class Palette(
     val text: Color,
     val muted: Color,
     val accent: Color,
-    val onAccent: Color
+    val onAccent: Color,
+    val vacPaid: Color,
+    val vacUnpaid: Color,
+    val onVac: Color
 )
 
 private val LightPalette = Palette(
     bg = Color(0xFFF6F5F2), surface = Color(0xFFFFFFFF), text = Color(0xFF1B1B1D),
-    muted = Color(0xFF8A8A90), accent = Color(0xFF1F6F54), onAccent = Color(0xFFFFFFFF)
+    muted = Color(0xFF8A8A90), accent = Color(0xFF1F6F54), onAccent = Color(0xFFFFFFFF),
+    vacPaid = Color(0xFFD98324), vacUnpaid = Color(0xFF6C7BB5), onVac = Color(0xFFFFFFFF)
 )
 private val DarkPalette = Palette(
     bg = Color(0xFF121214), surface = Color(0xFF1C1C1F), text = Color(0xFFF2F2F3),
-    muted = Color(0xFF8E8E93), accent = Color(0xFF6FD3A2), onAccent = Color(0xFF0C2A1D)
+    muted = Color(0xFF8E8E93), accent = Color(0xFF6FD3A2), onAccent = Color(0xFF0C2A1D),
+    vacPaid = Color(0xFFF0A84E), vacUnpaid = Color(0xFF8D9BD6), onVac = Color(0xFF1E1A12)
 )
 val LocalPalette = staticCompositionLocalOf { LightPalette }
 
@@ -143,13 +148,19 @@ fun App() {
         HomeScreen(
             cfg = cfg,
             onSettings = { showSettings = true },
-            onOverride = { day, v -> commit(cfg.withOverride(day, v)) }
+            onOverride = { day, v -> commit(cfg.withOverride(day, v)) },
+            onVacation = { f, t, v -> commit(cfg.withVacation(f, t, v)) }
         )
     }
 }
 
 @Composable
-fun HomeScreen(cfg: Config, onSettings: () -> Unit, onOverride: (LocalDate, Int) -> Unit) {
+fun HomeScreen(
+    cfg: Config,
+    onSettings: () -> Unit,
+    onOverride: (LocalDate, Int) -> Unit,
+    onVacation: (LocalDate, LocalDate, Int) -> Unit
+) {
     val p = LocalPalette.current
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     LaunchedEffect(Unit) {
@@ -160,6 +171,7 @@ fun HomeScreen(cfg: Config, onSettings: () -> Unit, onOverride: (LocalDate, Int)
     }
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selected by remember { mutableStateOf<LocalDate?>(null) }
+    var showVac by remember { mutableStateOf(false) }
 
     val st = ShiftLogic.status(cfg, now)
     val today = now.toLocalDate()
@@ -240,9 +252,9 @@ fun HomeScreen(cfg: Config, onSettings: () -> Unit, onOverride: (LocalDate, Int)
                         DayCell(
                             modifier = Modifier.weight(1f),
                             day = dayNum,
-                            work = ShiftLogic.isWork(cfg, date),
+                            kind = ShiftLogic.kind(cfg, date),
                             isToday = date == today,
-                            overridden = cfg.overrides.containsKey(date.toEpochDay()),
+                            overridden = (cfg.overrides[date.toEpochDay()] ?: 0).let { it == 1 || it == 2 },
                             onClick = { selected = date }
                         )
                     }
@@ -252,6 +264,18 @@ fun HomeScreen(cfg: Config, onSettings: () -> Unit, onOverride: (LocalDate, Int)
 
         Spacer(Modifier.height(20.dp))
 
+        Spacer(Modifier.height(12.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            LegendItem(p.accent, "Смена")
+            LegendItem(p.vacPaid, "Отпуск оплач.")
+            LegendItem(p.vacUnpaid, "Отпуск неоплач.")
+        }
+
+        Spacer(Modifier.height(8.dp))
         Row(
             Modifier
                 .fillMaxWidth()
@@ -263,12 +287,27 @@ fun HomeScreen(cfg: Config, onSettings: () -> Unit, onOverride: (LocalDate, Int)
             StatItem("Смен", stats.shifts.toString())
             StatItem("Часов", ShiftLogic.formatHours(stats.paidMinutes))
             StatItem("Выходных", stats.offDays.toString())
+            if (stats.vacationDays > 0) StatItem("Отпуск", stats.vacationDays.toString())
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "Нажмите на день, чтобы отметить подмену или отгул",
+            "Нажмите на день, чтобы отметить подмену, отгул или отпуск",
             color = p.muted, fontSize = 12.sp,
             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+        )
+        TextButton(
+            onClick = { showVac = true },
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        ) {
+            Text("Отметить отпуск за период", color = p.accent)
+        }
+    }
+
+    if (showVac) {
+        VacationDialog(
+            initial = today,
+            onDismiss = { showVac = false },
+            onApply = { f, t, v -> onVacation(f, t, v); showVac = false }
         )
     }
 
@@ -293,6 +332,12 @@ fun HomeScreen(cfg: Config, onSettings: () -> Unit, onOverride: (LocalDate, Int)
                     TextButton(onClick = { onOverride(d, 2); selected = null }) {
                         Text("Выходной (отгул)", color = p.text)
                     }
+                    TextButton(onClick = { onOverride(d, 3); selected = null }) {
+                        Text("Отпуск оплачиваемый", color = p.text)
+                    }
+                    TextButton(onClick = { onOverride(d, 4); selected = null }) {
+                        Text("Отпуск неоплачиваемый", color = p.text)
+                    }
                 }
             },
             confirmButton = {
@@ -315,21 +360,33 @@ fun StatItem(label: String, value: String) {
 fun DayCell(
     modifier: Modifier,
     day: Int,
-    work: Boolean,
+    kind: Int,
     isToday: Boolean,
     overridden: Boolean,
     onClick: () -> Unit
 ) {
     val p = LocalPalette.current
     val shape = RoundedCornerShape(14.dp)
+    val fill = when (kind) {
+        1 -> p.accent
+        2 -> p.vacPaid
+        3 -> p.vacUnpaid
+        else -> Color.Transparent
+    }
+    val textColor = when (kind) {
+        1 -> p.onAccent
+        2, 3 -> p.onVac
+        else -> p.text
+    }
+    val filled = kind != 0
     Box(
         modifier
             .aspectRatio(1f)
             .padding(3.dp)
             .clip(shape)
-            .background(if (work) p.accent else Color.Transparent)
+            .background(fill)
             .then(
-                if (isToday) Modifier.border(2.dp, if (work) p.text else p.accent, shape)
+                if (isToday) Modifier.border(2.dp, if (filled) p.text else p.accent, shape)
                 else Modifier
             )
             .clickable(onClick = onClick),
@@ -337,9 +394,9 @@ fun DayCell(
     ) {
         Text(
             day.toString(),
-            color = if (work) p.onAccent else p.text,
+            color = textColor,
             fontSize = 15.sp,
-            fontWeight = if (work) FontWeight.SemiBold else FontWeight.Normal
+            fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal
         )
         if (overridden) {
             Box(
@@ -348,7 +405,7 @@ fun DayCell(
                     .padding(bottom = 5.dp)
                     .size(4.dp)
                     .clip(CircleShape)
-                    .background(if (work) p.onAccent else p.accent)
+                    .background(if (filled) textColor else p.accent)
             )
         }
     }
@@ -530,4 +587,90 @@ fun StepperRow(
             Text("+", color = p.accent, fontSize = 22.sp)
         }
     }
+}
+
+
+@Composable
+fun LegendItem(color: Color, label: String) {
+    val p = LocalPalette.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.size(6.dp))
+        Text(label, color = p.muted, fontSize = 12.sp)
+    }
+}
+
+fun pickDate(ctx: android.content.Context, init: LocalDate, onPicked: (LocalDate) -> Unit) {
+    android.app.DatePickerDialog(
+        ctx,
+        { _, y, m, d -> onPicked(LocalDate.of(y, m + 1, d)) },
+        init.year, init.monthValue - 1, init.dayOfMonth
+    ).show()
+}
+
+@Composable
+fun TypeRow(label: String, selected: Boolean, color: Color, onClick: () -> Unit) {
+    val p = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(14.dp).clip(CircleShape).background(color))
+        Spacer(Modifier.size(10.dp))
+        Text(label, color = p.text, fontSize = 16.sp, modifier = Modifier.weight(1f))
+        if (selected) Text("✓", color = p.accent, fontSize = 18.sp)
+    }
+}
+
+@Composable
+fun VacationDialog(
+    initial: LocalDate,
+    onDismiss: () -> Unit,
+    onApply: (LocalDate, LocalDate, Int) -> Unit
+) {
+    val p = LocalPalette.current
+    val ctx = LocalContext.current
+    var from by remember { mutableStateOf(initial) }
+    var to by remember { mutableStateOf(initial) }
+    var type by remember { mutableStateOf(3) }
+    val fmt = DateTimeFormatter.ofPattern("d MMMM yyyy", ShiftLogic.ru)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = p.surface,
+        title = { Text("Отпуск", color = p.text, fontSize = 18.sp) },
+        text = {
+            Column {
+                ClickRow("С", from.format(fmt)) {
+                    pickDate(ctx, from) { picked ->
+                        from = picked
+                        if (to.isBefore(picked)) to = picked
+                    }
+                }
+                ClickRow("По", to.format(fmt)) {
+                    pickDate(ctx, to) { picked ->
+                        to = picked
+                        if (from.isAfter(picked)) from = picked
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                TypeRow("Оплачиваемый", type == 3, p.vacPaid) { type = 3 }
+                TypeRow("Неоплачиваемый", type == 4, p.vacUnpaid) { type = 4 }
+                TextButton(onClick = { onApply(from, to, 0) }) {
+                    Text("Снять отпуск за этот период", color = p.muted)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(from, to, type) }) {
+                Text("Применить", color = p.accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена", color = p.muted) }
+        }
+    )
 }
